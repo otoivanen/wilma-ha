@@ -55,7 +55,7 @@ See [`docs/automations_example.yaml`](docs/automations_example.yaml) for example
 
 ## Disclaimer
 
-This is an unofficial, personal open-source project and is not affiliated with, endorsed by, or connected to Visma or the Wilma school portal in any way. Use at your own risk. The author takes no responsibility for any issues arising from the use of this integration, including but not limited to data loss, incorrect data, or service disruptions.
+This is an unofficial, personal open-source project and is not affiliated with, endorsed by, or connected to Visma or the Wilma school portal in any way. Use at your own risk. The author takes no responsibility for any issues arising from the use of this integration, including but not limited to data loss, incorrect data, or service disruptions. Users are responsible for ensuring their use complies with their school's Wilma terms of service.
 
 ## Tools
 
