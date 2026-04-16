@@ -53,6 +53,10 @@ See [`docs/automations_example.yaml`](docs/automations_example.yaml) for example
 - Daily reminder 1 and 3 days before an exam
 - `/exams` Telegram command to list all upcoming exams
 
+## Disclaimer
+
+This is an unofficial, personal open-source project and is not affiliated with, endorsed by, or connected to Visma or the Wilma school portal in any way. Use at your own risk. The author takes no responsibility for any issues arising from the use of this integration, including but not limited to data loss, incorrect data, or service disruptions.
+
 ## Tools
 
 `tools/wilma_client.py` is a standalone test script for verifying connectivity and inspecting raw data without Home Assistant:
