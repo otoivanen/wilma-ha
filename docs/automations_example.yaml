@@ -1,0 +1,120 @@
+# Wilma — example automations
+#
+# Copy these into your HA automations.yaml (or import via the UI).
+# Replace every placeholder in UPPERCASE with your actual values:
+#
+#   YOUR_TELEGRAM_NOTIFY_SERVICE
+#     The notify entity for your Telegram bot, e.g. notify.my_bot_12345678
+#     Find it under Developer Tools → Services → search "notify"
+#
+#   sensor.wilma_CHILD_NAME
+#     Entity ID for each child sensor. Derived from the child's name:
+#     spaces → underscores, lowercased, prefixed with "wilma_"
+#     Example: "Anna Smith" → sensor.wilma_anna_smith
+#     Check the actual IDs under Developer Tools → States → search "wilma"
+#
+#   YOUR_CHAT_ID
+#     Telegram chat ID for telegram_bot.send_message actions.
+#     Your personal chat ID is visible in Developer Tools → Events when
+#     you send any message to the bot.
+#
+# Prerequisites:
+#   - Wilma integration installed and sensors appearing in HA
+#   - Telegram bot integration configured (polling or webhook mode)
+#   - At least one notify.* Telegram service available
+
+# ── 1. Immediate notification when a new exam appears ──────────────────────────
+- alias: "Wilma - New exam notification"
+  description: "Send a Telegram message when a new exam appears in Wilma"
+  trigger:
+    - platform: event
+      event_type: wilma_new_exam
+  action:
+    - action: notify.send_message
+      target:
+        entity_id: YOUR_TELEGRAM_NOTIFY_SERVICE
+      data:
+        message: |-
+          New exam: {{ trigger.event.data.child }}
+          Date: {{ trigger.event.data.date }}
+          Topic: {{ trigger.event.data.topic }}
+          Subject: {{ trigger.event.data.subject | trim }}
+          Teacher: {{ trigger.event.data.get('teacher', '?') }}
+
+# ── 2. Daily reminder at 07:00 for exams in 1 or 3 days ───────────────────────
+#
+# Replace the two sensor IDs in the template with your actual sensor entity IDs.
+# If you have more or fewer children, add or remove entries from the lists.
+- alias: "Wilma - Exam day reminder"
+  description: "Telegram reminder at 07:00 if an exam is tomorrow or in 3 days"
+  trigger:
+    - platform: time
+      at: "07:00:00"
+  condition:
+    - condition: template
+      value_template: >-
+        {% set t1 = (now() + timedelta(days=1)).strftime('%Y-%m-%d') %}
+        {% set t3 = (now() + timedelta(days=3)).strftime('%Y-%m-%d') %}
+        {% set all = (state_attr('sensor.wilma_CHILD_NAME_1', 'exams') or []) +
+                     (state_attr('sensor.wilma_CHILD_NAME_2', 'exams') or []) %}
+        {{ (all | selectattr('date_iso', 'equalto', t1) | list +
+            all | selectattr('date_iso', 'equalto', t3) | list) | length > 0 }}
+  action:
+    - action: notify.send_message
+      target:
+        entity_id: YOUR_TELEGRAM_NOTIFY_SERVICE
+      data:
+        message: >-
+          {% set t1 = (now() + timedelta(days=1)).strftime('%Y-%m-%d') %}
+          {% set t3 = (now() + timedelta(days=3)).strftime('%Y-%m-%d') %}
+          {% set ns = namespace(lines=['Upcoming exam reminder:']) %}
+          {% for sensor_id, child in [
+               ('sensor.wilma_CHILD_NAME_1', 'Child One'),
+               ('sensor.wilma_CHILD_NAME_2', 'Child Two')] %}
+            {% for exam in (state_attr(sensor_id, 'exams') or []) %}
+              {% if exam.date_iso == t1 %}
+                {% set ns.lines = ns.lines + [
+                  child + ': ' + exam.topic + ' (' + (exam.subject | trim) + ') – TOMORROW ' + exam.date] %}
+              {% elif exam.date_iso == t3 %}
+                {% set ns.lines = ns.lines + [
+                  child + ': ' + exam.topic + ' (' + (exam.subject | trim) + ') – in 3 days ' + exam.date] %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+          {{ ns.lines | join('\n') }}
+
+# ── 3. /exams Telegram command → full exam list ────────────────────────────────
+#
+# Trigger by sending /exams (private) or /exams@YourBotName (group) to your bot.
+# The reply goes to whichever chat sent the command.
+#
+# Replace the sensor IDs and display names in the template below.
+- alias: "Wilma - /exams command"
+  description: "Reply to the /exams Telegram command with the full upcoming exam list"
+  trigger:
+    - platform: event
+      event_type: telegram_command
+      event_data:
+        command: /exams
+  action:
+    - action: telegram_bot.send_message
+      data:
+        target: "{{ trigger.event.data.chat_id }}"
+        message: >-
+          {% set ns = namespace(lines=['Upcoming exams:']) %}
+          {% for sensor_id, child in [
+               ('sensor.wilma_CHILD_NAME_1', 'Child One'),
+               ('sensor.wilma_CHILD_NAME_2', 'Child Two')] %}
+            {% set exams = state_attr(sensor_id, 'exams') or [] %}
+            {% if exams %}
+              {% set ns.lines = ns.lines + ['', '── ' + child + ' ──'] %}
+              {% for exam in exams %}
+                {% set ns.lines = ns.lines + [
+                  exam.date + ': ' + exam.topic + ' (' + (exam.subject | trim) + ')'] %}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+          {% if ns.lines | length == 1 %}
+            {% set ns.lines = ['No upcoming exams.'] %}
+          {% endif %}
+          {{ ns.lines | join('\n') }}

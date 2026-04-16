@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Secrets / personal config
+secrets.yaml
+.env
+
+# Dev notes & planning (not for public repo)
+IMPLEMENTATION_NOTES.md
+wilma_ha_plan.md
+
+# Editor & tooling
+.vscode/
+.claude/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
