@@ -51,11 +51,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import WilmaClient
+from .const import DOMAIN, EVENT_NEW_EXAM
 
 _LOGGER = logging.getLogger(__name__)
-
-DOMAIN = "wilma"
-EVENT_NEW_EXAM = "wilma_new_exam"
 
 
 class WilmaCoordinator(DataUpdateCoordinator):

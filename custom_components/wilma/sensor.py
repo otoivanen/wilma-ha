@@ -2,61 +2,63 @@
 sensor.py — WilmaExamSensor entity
 ====================================
 PURPOSE
-    Creates one sensor entity per child in configuration.yaml. Each sensor
-    shows the current number of upcoming exams as its state, with the full
-    exam list and next-exam details as attributes.
+    Creates one sensor entity per child discovered during config flow.
+    Each sensor shows the current number of upcoming exams as its state,
+    with the full exam list and next-exam details as attributes.
 
 HOW IT WORKS (HA concepts)
-    async_setup_platform(hass, config, async_add_entities, ...)
-        HA calls this after __init__.py schedules the platform load. We
-        pull the coordinator from hass.data and create one entity per
-        child. The second argument to async_add_entities (True) tells HA
-        to call async_update() on each entity immediately after creation
-        so they have data before the first UI render.
+    async_setup_entry(hass, entry, async_add_entities)
+        HA calls this after __init__.py forwards setup to the sensor
+        platform. We pull the coordinator from hass.data and create one
+        entity per child.
 
     CoordinatorEntity (base class)
         Wires the entity into the coordinator's update cycle. Whenever the
         coordinator finishes a poll and has new data, HA automatically
-        calls async_write_ha_state() on every subscribed entity — no
-        manual polling or callbacks needed.
+        calls async_write_ha_state() on every subscribed entity.
 
     SensorEntity (base class)
         Declares this as a sensor. HA uses native_value and
-        native_unit_of_measurement to populate the state in the UI and in
-        automations (e.g. state: "3 koetta").
+        native_unit_of_measurement to populate the state.
 
     unique_id
-        A stable, unique string HA uses to identify this entity across
-        restarts. Without it you cannot rename the entity in the UI or
-        store history. It is derived from the child's name so it stays
-        consistent even if the entity's display name changes.
+        A stable string HA uses to identify this entity across restarts.
+        Derived from the config entry ID and child ID so it stays unique
+        even across multiple Wilma accounts.
 
     extra_state_attributes
         The dict returned here shows up under the entity in Developer
         Tools → States and is available in automation templates as
         state_attr('sensor.wilma_child_name', 'next_exam_date').
-        This is where the exam list lives.
 """
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import DOMAIN
+from .const import DOMAIN
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    coordinator = hass.data[DOMAIN]
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    coordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        [WilmaExamSensor(coordinator, child) for child in coordinator.children],
+        [WilmaExamSensor(coordinator, child, entry.entry_id) for child in coordinator.children],
         True,
     )
 
 
 class WilmaExamSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator, child: dict) -> None:
+    def __init__(self, coordinator, child: dict, entry_id: str) -> None:
         super().__init__(coordinator)
         self._child_name = child["name"]
         self._child_id = child["id"]
+        self._entry_id = entry_id
 
     @property
     def name(self) -> str:
@@ -64,7 +66,7 @@ class WilmaExamSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def unique_id(self) -> str:
-        return f"wilma_{self._child_name.lower().replace(' ', '_')}"
+        return f"{self._entry_id}_{self._child_id}"
 
     @property
     def native_value(self) -> int | str:
