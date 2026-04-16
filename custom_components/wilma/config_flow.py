@@ -107,14 +107,11 @@ class WilmaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> WilmaOptionsFlow:
-        return WilmaOptionsFlow(config_entry)
+        return WilmaOptionsFlow()
 
 
 class WilmaOptionsFlow(config_entries.OptionsFlow):
     """Handle options (poll interval) after the integration is set up."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict | None = None
