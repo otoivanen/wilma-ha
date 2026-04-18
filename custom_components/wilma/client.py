@@ -35,6 +35,8 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+_BODY_PREVIEW_LEN = 1000
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -128,6 +130,62 @@ class WilmaClient:
                     seen[child_id] = name
 
         return [{"name": name, "id": cid} for cid, name in seen.items()]
+
+    # ── Messages ─────────────────────────────────────────────────────────────
+
+    def get_messages(self, child_id: str) -> list[dict]:
+        """
+        Fetch metadata for all inbox messages for a child via the JSON list API.
+        Sorted newest-first by TimeStamp. Does NOT fetch bodies.
+
+        Each returned dict has: id, subject, sender, sender_id, sender_type,
+        sent (YYYY-MM-DD HH:MM), url, is_unread.
+        """
+        r = self.session.get(f"{self.base_url}/!{child_id}/messages/list")
+        r.raise_for_status()
+
+        data = r.json()
+        if data.get("Status") != 200:
+            raise RuntimeError(
+                f"messages/list returned status {data.get('Status')} for child {child_id}"
+            )
+
+        messages = []
+        for item in sorted(data.get("Messages", []), key=lambda x: x.get("TimeStamp", ""), reverse=True):
+            message_id = str(item["Id"])
+            sender = item.get("Sender", "")
+            sender_id_match = re.search(r"\(([^)]+)\)$", sender)
+            messages.append({
+                "id":          message_id,
+                "subject":     item.get("Subject", ""),
+                "sender":      sender,
+                "sender_id":   sender_id_match.group(1) if sender_id_match else "",
+                "sender_type": item.get("SenderType"),
+                "sent":        item.get("TimeStamp", ""),
+                "url":         f"{self.base_url}/!{child_id}/messages/{message_id}",
+                "is_unread":   item.get("Status") == 1,
+            })
+
+        return messages
+
+    def fetch_message_body(self, child_id: str, message_id: str) -> str:
+        """
+        Fetch the plain-text body of a single message, truncated to
+        _BODY_PREVIEW_LEN characters. Body lives in <div class="ckeditor">.
+        """
+        r = self.session.get(f"{self.base_url}/!{child_id}/messages/{message_id}")
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        body_div = soup.find("div", class_="ckeditor")
+        if not body_div:
+            return ""
+        text = body_div.get_text("\n", strip=True)
+        text = text.replace("\\n", "\n")
+        text = "\n".join(line for line in text.splitlines() if line.strip())
+        if len(text) > _BODY_PREVIEW_LEN:
+            text = text[:_BODY_PREVIEW_LEN] + "…"
+        return text
 
     # ── Exams ─────────────────────────────────────────────────────────────────
 

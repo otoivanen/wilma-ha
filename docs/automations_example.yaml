@@ -23,7 +23,29 @@
 #   - Telegram bot integration configured (polling or webhook mode)
 #   - At least one notify.* Telegram service available
 
-# ── 1. Immediate notification when a new exam appears ──────────────────────────
+# ── 1. Immediate notification when a new message appears ──────────────────────
+#
+# Fires when a new message is detected in the configured sender filter window.
+# Set up sender filters in the integration's Configure page to control which
+# senders trigger this — leave blank to be notified about all messages.
+- alias: "Wilma - New message notification"
+  description: "Send a Telegram message when a new Wilma message arrives"
+  trigger:
+    - platform: event
+      event_type: wilma_new_message
+  action:
+    - action: notify.send_message
+      target:
+        entity_id: YOUR_TELEGRAM_NOTIFY_SERVICE
+      data:
+        message: |-
+          ✉️ New Wilma message: {{ trigger.event.data.child }}
+          👨‍🏫 {{ trigger.event.data.sender }}
+          📌 {{ trigger.event.data.subject }}
+
+          {{ trigger.event.data.body }}
+
+# ── 2. Immediate notification when a new exam appears ──────────────────────────
 - alias: "Wilma - New exam notification"
   description: "Send a Telegram message when a new exam appears in Wilma"
   trigger:

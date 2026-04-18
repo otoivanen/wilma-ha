@@ -37,7 +37,10 @@ from .const import (
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_CHILDREN,
+    CONF_SENDER_FILTERS,
+    CONF_MESSAGE_LIMIT,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_MESSAGE_LIMIT,
     DOMAIN,
 )
 
@@ -119,16 +122,18 @@ class WilmaOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current = self.config_entry.options.get(
-            CONF_SCAN_INTERVAL,
-            self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-        )
+        def _opt(key, default):
+            return self.config_entry.options.get(
+                key, self.config_entry.data.get(key, default)
+            )
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_SCAN_INTERVAL, default=current): int,
+                    vol.Required(CONF_SCAN_INTERVAL, default=_opt(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): int,
+                    vol.Optional(CONF_SENDER_FILTERS, default=_opt(CONF_SENDER_FILTERS, "")): str,
+                    vol.Required(CONF_MESSAGE_LIMIT, default=_opt(CONF_MESSAGE_LIMIT, DEFAULT_MESSAGE_LIMIT)): int,
                 }
             ),
         )

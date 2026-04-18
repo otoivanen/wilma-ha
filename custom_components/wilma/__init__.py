@@ -15,10 +15,6 @@ HOW IT WORKS
         Called when the user removes the integration or HA is shutting
         down. Unloads all platforms and cleans up hass.data.
 
-    async_reload_entry(hass, entry)
-        Called when the user changes options (e.g. poll interval). Unloads
-        and re-loads the entry so the new scan_interval takes effect.
-
     hass.data[DOMAIN][entry.entry_id]
         Each config entry gets its own coordinator stored here. Using
         entry.entry_id as the key supports multiple Wilma accounts.
@@ -38,7 +34,10 @@ from .const import (
     CONF_PASSWORD,
     CONF_CHILDREN,
     CONF_SCAN_INTERVAL,
+    CONF_SENDER_FILTERS,
+    CONF_MESSAGE_LIMIT,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_MESSAGE_LIMIT,
 )
 from .coordinator import WilmaCoordinator
 
@@ -46,10 +45,11 @@ PLATFORMS = ["sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    scan_interval = entry.options.get(
-        CONF_SCAN_INTERVAL,
-        entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-    )
+    def _opt(key, default):
+        return entry.options.get(key, entry.data.get(key, default))
+
+    raw_filters = _opt(CONF_SENDER_FILTERS, "")
+    sender_filters = [p.strip() for p in raw_filters.split(",") if p.strip()]
 
     coordinator = WilmaCoordinator(
         hass,
@@ -57,7 +57,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         username=entry.data[CONF_USERNAME],
         password=entry.data[CONF_PASSWORD],
         children=entry.data[CONF_CHILDREN],
-        scan_interval=scan_interval,
+        scan_interval=_opt(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+        sender_filters=sender_filters,
+        message_limit=_opt(CONF_MESSAGE_LIMIT, DEFAULT_MESSAGE_LIMIT),
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -66,7 +68,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+    entry.async_on_unload(
+        entry.add_update_listener(lambda hass, entry: hass.config_entries.async_reload(entry.entry_id))
+    )
 
     return True
 
@@ -78,6 +82,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)

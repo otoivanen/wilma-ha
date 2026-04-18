@@ -1,9 +1,9 @@
 """
 wilma_client.py — Standalone Wilma test client
 ================================================
-Use this to verify connectivity, test login, and discover the child IDs
-and names registered to your Wilma account before setting up the HA
-integration.
+Tests login, lists children, fetches exams and messages.
+Messages can be filtered by sender using glob-style patterns
+(e.g. '*doe*', '*jane doe*') matched case-insensitively.
 
 Usage:
     python tools/wilma_client.py
@@ -12,11 +12,10 @@ You will be prompted for:
     - Wilma base URL  (e.g. https://yourschool.inschool.fi)
     - Username        (your email address)
     - Password
-
-The script will log in, print all children found on the account with their
-IDs, and then print each child's upcoming exams.
+    - Sender filter patterns (comma-separated, leave blank to show all)
 """
 
+import fnmatch
 import getpass
 import re
 import sys
@@ -151,6 +150,74 @@ class WilmaClient:
 
         return exams
 
+    # ── Messages ──────────────────────────────────────────────────────────────
+
+    def get_messages(self, child_id: str) -> list[dict]:
+        """
+        Fetch metadata for all inbox messages for a child via the JSON list API.
+        Does NOT fetch message bodies — call _fetch_message_body() separately
+        for only the messages you actually need.
+
+        Endpoint: GET /!{child_id}/messages/list
+        Returns:  {"Status": 200, "Messages": [...]}
+
+        Each message object from the API:
+          Id          : int  — unique message ID, grows over time (cursor-safe)
+          Subject     : str  — message subject
+          TimeStamp   : str  — "YYYY-MM-DD HH:MM"
+          Sender      : str  — "Lastname Firstname (ShortCode)"
+          SenderId    : int  — internal sender ID
+          SenderType  : int  — 1=teacher, 3=school staff, 4=guardian reply
+          Folder      : str  — "inbox" for inbox messages
+          Status      : int|None — 1=unread, absent=read
+
+        The list is already sorted newest-first.
+        """
+        r = self.session.get(f"{self.base_url}/!{child_id}/messages/list")
+        r.raise_for_status()
+
+        data = r.json()
+        if data.get("Status") != 200:
+            raise RuntimeError(
+                f"messages/list returned status {data.get('Status')} for child {child_id}"
+            )
+
+        messages = []
+        for item in sorted(data.get("Messages", []), key=lambda x: x.get("TimeStamp", ""), reverse=True):
+            message_id = str(item["Id"])
+            sender = item.get("Sender", "")
+            sender_id_match = re.search(r"\(([^)]+)\)$", sender)
+
+            messages.append({
+                "id":          message_id,
+                "subject":     item.get("Subject", ""),
+                "sender":      sender,
+                "sender_id":   sender_id_match.group(1) if sender_id_match else "",
+                "sender_type": item.get("SenderType"),
+                "sent":        item.get("TimeStamp", ""),
+                "url":         f"{self.base_url}/!{child_id}/messages/{message_id}",
+                "is_unread":   item.get("Status") == 1,
+            })
+
+        return messages
+
+    def _fetch_message_body(self, child_id: str, message_id: str) -> str:
+        """
+        Fetch and return the plain-text body of a single message.
+        The body lives in <div class="ckeditor"> (also matched when class is
+        "ckeditor hidden" — BS4 does partial class matching).
+        """
+        r = self.session.get(f"{self.base_url}/!{child_id}/messages/{message_id}")
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        body_div = soup.find("div", class_="ckeditor")
+        if not body_div:
+            return ""
+        text = body_div.get_text("\n", strip=True)
+        text = text.replace("\\n", "\n")
+        return "\n".join(line for line in text.splitlines() if line.strip())
+
     # ── Pretty-print ──────────────────────────────────────────────────────────
 
     def print_children(self, children: list[dict]) -> None:
@@ -177,6 +244,53 @@ class WilmaClient:
                 if exam.get("details"):
                     print(f"     Details : {exam['details']}")
 
+    def print_messages(
+        self,
+        children: list[dict],
+        filters: list[str],
+        limit: int = 10,
+    ) -> None:
+        """
+        Fetch metadata for all messages, filter by sender, take the `limit`
+        newest matches, then fetch bodies only for those. An empty `filters`
+        list matches all senders.
+        """
+        for child in children:
+            print(f"\n{'='*55}")
+            print(f"  {child['name']} — Messages")
+            print(f"{'='*55}")
+
+            all_messages = self.get_messages(child["id"])
+
+            if not all_messages:
+                print("  No messages found.")
+                continue
+
+            newest = all_messages[:limit]
+            matched = [m for m in newest if _sender_matches(m["sender"], filters)]
+
+            print(
+                f"  {len(all_messages)} message(s) in inbox, "
+                f"checking {len(newest)} newest, {len(matched)} matched filter."
+            )
+
+            if not matched:
+                print("  Senders in the last 10:")
+                for m in newest:
+                    print(f"    {m['sent']}  {repr(m['sender'])}")
+                continue
+
+            for msg in matched:
+                body = self._fetch_message_body(child["id"], msg["id"])
+                unread_tag = " [UNREAD]" if msg["is_unread"] else ""
+                print(f"  [{msg['id']}]{unread_tag} {msg['sent']}")
+                print(f"     Subject : {msg['subject']}")
+                print(f"     Sender  : {msg['sender']} (type={msg['sender_type']})")
+                print(f"     Body    :")
+                for line in body.splitlines():
+                    print(f"               {line}")
+                print()
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -188,6 +302,25 @@ def _parse_date_iso(date_str: str) -> str | None:
     return None
 
 
+def _sender_matches(sender: str, patterns: list[str]) -> bool:
+    """
+    Return True if `sender` matches any of the glob patterns, or if `patterns`
+    is empty (no filter → everything passes).  Matching is case-insensitive.
+    """
+    if not patterns:
+        return True
+    sender_lower = sender.lower()
+    return any(fnmatch.fnmatch(sender_lower, pat.lower()) for pat in patterns)
+
+
+def _parse_filter_input(raw: str) -> list[str]:
+    """Parse a comma-separated filter string into a list of stripped patterns."""
+    raw = raw.strip().strip("[]")
+    if not raw:
+        return []
+    return [p.strip().strip("'\"") for p in raw.split(",") if p.strip()]
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -196,6 +329,19 @@ if __name__ == "__main__":
     base_url = input("Wilma base URL (e.g. https://yourschool.inschool.fi): ").strip()
     username = input("Username (email): ").strip()
     password = getpass.getpass("Password: ")
+
+    print("\nSender filter — comma-separated name patterns, * = wildcard.")
+    print("  Type:    *smith*, *jane*")
+    print("  Leave blank to show ALL senders.")
+    raw_filters = input("Filter: ").strip()
+    filters = _parse_filter_input(raw_filters)
+
+    if filters:
+        print(f"Active filters: {filters}")
+    else:
+        print("No filter — all senders will be shown.")
+
+    message_limit = 10  # max bodies to fetch per child after filtering
 
     client = WilmaClient(base_url, username, password)
 
@@ -217,3 +363,4 @@ if __name__ == "__main__":
 
     client.print_children(children)
     client.print_exams(children)
+    client.print_messages(children, filters=filters, limit=message_limit)
