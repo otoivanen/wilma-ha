@@ -1,14 +1,34 @@
 # Wilma Home Assistant Integration
 
-A custom Home Assistant integration that fetches upcoming exams from the [Wilma](https://www.visma.com/finland/wilma/) school portal and exposes them as sensors.
+A custom Home Assistant integration that monitors the [Wilma](https://www.visma.com/finland/wilma/) school portal and exposes upcoming exams and school messages as sensors.
 
 ## Features
 
+### Exams
 - One sensor per child showing upcoming exam count
 - Exam details available as sensor attributes (date, topic, subject, teacher)
 - Fires `wilma_new_exam` event when a new exam appears — use for Telegram notifications
-- Configurable poll interval
+
+### Messages
+- One sensor per child showing unread message count
+- Fetches the 10 latest messages per child each poll cycle
+- Message body, sender, subject and timestamp available as sensor attributes
+- Fires `wilma_new_message` event when a new message arrives — use for Telegram notifications
+- Built-in sender filter ("spam filter"): configure glob patterns (e.g. `*smith*`) to only track messages from specific teachers — leave blank to track all
+
+### General
 - Children are auto-discovered after login — no manual ID lookup needed
+- Configurable poll interval, message limit, and sender filters — all via the UI
+
+## Screenshots
+
+| Setup | Options |
+|---|---|
+| ![Config flow](docs/screenshots/config_flow.png) | ![Options](docs/screenshots/options_flow.png) |
+
+| Sensors | Telegram notification |
+|---|---|
+| ![Sensors](docs/screenshots/sensors.png) | ![Telegram](docs/screenshots/telegram.png) |
 
 ## Installation via HACS
 
@@ -28,15 +48,21 @@ All configuration is done through the UI. No changes to `configuration.yaml` are
 | Username | `your@email.com` | Your Wilma login email |
 | Password | | Your Wilma password |
 
-The poll interval (default: 4 hours) can be changed after setup via the **Configure** button on the integration page.
+The following options can be changed after setup via the **Configure** button on the integration page:
+
+| Option | Default | Description |
+|---|---|---|
+| Poll interval | `14400` | Seconds between Wilma polls |
+| Sender filters | *(blank)* | Comma-separated glob patterns, e.g. `*smith*, *jones*` — blank means all senders |
+| Message limit | `10` | Max messages fetched per child per poll |
 
 ### Credential storage
 
-Credentials are stored in Home Assistant's config entry storage (`/.storage/core.config_entries`), which is encrypted at rest and never exposed through the HA UI or API. This is the standard HA mechanism used by all integrations that require authentication — the same way integrations like Spotify or Google handle credentials.
+Credentials are stored in Home Assistant's config entry storage (`/.storage/core.config_entries`) and are never exposed through the HA UI or API. This is the standard HA mechanism used by all integrations that require authentication — the same way integrations like Spotify or Google handle credentials. Note that the storage file itself is not encrypted at rest; secure your Home Assistant instance accordingly.
 
 ## Sensor attributes
 
-Each sensor (`sensor.wilma_<child_name>`) exposes:
+### Exam sensor (`sensor.wilma_<child_name>`)
 
 | Attribute | Description |
 |---|---|
@@ -46,12 +72,26 @@ Each sensor (`sensor.wilma_<child_name>`) exposes:
 
 Each exam in the list has: `date`, `date_iso`, `topic`, `subject`, `group`, `teacher`, `details`.
 
+![Message sensor attributes](docs/screenshots/message_attributes.png)
+
+### Message sensor (`sensor.wilma_<child_name>_messages`)
+
+State = number of unread messages in the current window.
+
+| Attribute | Description |
+|---|---|
+| `messages` | List of fetched messages (up to the configured limit) |
+| `latest_message` | The most recent message |
+
+Each message in the list has: `id`, `subject`, `sender`, `sender_id`, `sent`, `is_unread`, `body`, `url`.
+
 ## Automations
 
 See [`docs/automations_example.yaml`](docs/automations_example.yaml) for example automations:
 - Telegram notification on new exam
 - Daily reminder 1 and 3 days before an exam
 - `/exams` Telegram command to list all upcoming exams
+- Telegram notification on new message
 
 ## Disclaimer
 
